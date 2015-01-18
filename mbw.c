@@ -54,7 +54,51 @@
  */
 
 
+#ifdef __APPLE__
 
+#define PTHREAD_BARRIER_SERIAL_THREAD   1
+typedef struct cpu_set {
+    uint32_t    count;
+} cpu_set_t;
+
+static inline void 
+CPU_ZERO(cpu_set_t *cs) { cs->count = 0; }
+static inline void 
+CPU_SET(int num, cpu_set_t *cs) { cs->count |= (1 << num); }
+static inline int
+CPU_ISSET(int num, cpu_set_t *cs) { return (cs->count & (1 << num)); }
+
+typedef struct pthread_barrier {
+} pthread_barrier_t;
+
+int pthread_barrier_init(pthread_barrier_t *bar, int attr, int num)
+{
+    return 0;
+}
+
+int pthread_barrier_wait(pthread_barrier_t *bar)
+{
+    return 0;
+}
+
+int sched_getaffinity(pid_t pid, size_t cpu_size, cpu_set_t *cpu_set)
+{
+    return 0;
+}
+
+int pthread_setaffinity_np(pthread_t thread, size_t cpu_size, cpu_set_t *cpu_set)
+{
+    return 0;
+}
+
+void *mempcpy(void *dest, const void *src, size_t size)
+{
+    memcpy(dest, src, size);
+    return (dest + size);
+}
+
+
+#endif
 
 /* whats tests to run (-t x) */
 static int tests[MAX_TESTS];
@@ -69,7 +113,7 @@ static double mt = 0;
 /* number of threads */
 static int mt_num = 1;
 /* number of cores */
-static int num_cores = 0;
+static int num_cores = 1;
 static int core_factor = 1;
 /* fixed memcpy block size for -t2 */
 unsigned long long block_size=DEFAULT_BLOCK_SIZE;
@@ -385,7 +429,7 @@ int main(int argc, char **argv)
                 break;
             case 't': /* test to run */
                 testno=strtoul(optarg, (char **)NULL, 10);
-                if(0>testno) {
+                if(MAX_TESTS<testno) {
                     printf("Error: test number must be between 0 and %d\n", MAX_TESTS);
                     exit(1);
                 }
