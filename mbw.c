@@ -63,6 +63,9 @@ misaligned:
 
 #ifdef __arm__
 
+/* make sure you enabled user-mode performance counter access before you use
+ * rdtsc and pmc_cntr_write functions
+ */
 static inline uint32_t rdtsc(void)
 {
 	uint32_t val = 0;
