@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/mman.h>
@@ -14,23 +15,113 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <linux/perf_event.h>
+#include <asm/unistd.h>
 
 /* how many runs to average by default */
 #define DEFAULT_NR_LOOPS 10
 
-/* we have 3 tests at the moment */
-#define MAX_TESTS 3
+/* we have 4 tests at the moment */
+#define MAX_TESTS 5
 
 /* default block size for test 2, in bytes */
 #define DEFAULT_BLOCK_SIZE 262144
 
 /* test types */
-#define TEST_MEMCPY 0
-#define TEST_DUMB 1
-#define TEST_MCBLOCK 2
+#define TEST_MEMCPY 	0
+#define TEST_DUMB 	1
+#define TEST_MCBLOCK 	2
+#define TEST_NEON    	3
+#define TEST_LDM_PL	4
 
 /* version number */
 #define VERSION "1.4"
+
+#define ALIGN (sizeof(size_t) - 1)
+#define SS (sizeof(size_t))
+
+/* copy from MUSLC memcpy */ 
+static void *mem_cpy(void *dest, const void *src, size_t n)
+{
+	unsigned char *d = dest;
+	const unsigned char *s = src;
+	if (((uintptr_t)d & ALIGN) != ((uintptr_t)s & ALIGN)) 
+		goto misaligned;
+	
+	for (; ((uintptr_t)d & ALIGN) && n; n--) *d++ = *s++;
+	if (n) {
+		size_t *wd = (void *)d;
+		const size_t *ws = (const void *)s;
+		for (; n >= SS; n-=SS) *wd++ = *ws++;
+		d = (void *)wd;
+		s = (const void *)ws;
+misaligned:
+		for (; n; n--) *d++ = *s++;
+	}
+	return dest;
+}
+
+#ifdef __arm__
+
+static inline uint32_t rdtsc(void)
+{
+	uint32_t val = 0;
+	__asm__ __volatile__ ("mrc p15, 0, %0, c9, c13, 0":"=r"(val)::);
+	return val;
+}
+
+static inline uint32_t pmc_cntr_write(uint32_t val)
+{
+	__asm__ __volatile__ ("mcr p15, 0, %0, c9, c13, 0"::"r"(val):);
+}
+
+static inline void *neon_memcpy(void *dest, const void *src, size_t n)
+{
+    register void *_d asm ("r0") = dest;
+    register void *_s asm ("r1") = src;
+    register size_t _n asm ("r2") = n;
+    __asm__ __volatile__ (
+  		              ".fpu neon		\n"
+			      "1:                       \n"
+ 			      "pld	[%1, #28]	\n"
+			      "pld      [%1, #92]       \n"
+			      "pld	[%1, #124]	\n"
+			      "vldm r1!, {d0-d7}	\n"
+			      "vstm r0!, {d0-d7}	\n"
+			      "subs r2, r2, #0x40	\n"
+			      "bge 1b			\n"
+			      :
+			      : "r"(_d), "r"(_s), "r"(_n)
+                              : "memory"
+	); 	
+}
+
+static void *ldmpl_memcpy(void *dest, const void *src, size_t n)
+{
+    register void *_d asm ("r0") = dest;
+    register void *_s asm ("r1") = src;
+    register size_t _n asm ("r2") = n;
+
+    __asm__ __volatile__("push	{r4-r10} 	\n"
+			 "1:			\n"
+ 			 "pld	[%1, #28]	\n"
+		         "pld   [%1, #60]       \n"
+                         "pld   [%1, #92]       \n"
+                         "pld   [%1, #124]      \n"
+			 "ldmia %1!, {r3-r10}   \n"
+			 "stmia %0!, {r3-r10}   \n"
+	                 "ldmia %1!, {r3-r10}   \n"
+                         "stmia %0!, {r3-r10}   \n"
+                         "subs  %2, %2, #0x40   \n"
+     			 "bge	1b		\n"
+			 "pop	{r4-r10}	\n"
+			:
+			: "r"(_d), "r"(_s), "r"(_n)
+			: "memory"
+	);
+}
+
+#endif
 
 /*
  * MBW memory bandwidth benchmark
@@ -70,7 +161,7 @@ static double mt = 0;
 static int mt_num = 1;
 /* number of cores */
 static int num_cores = 0;
-static int core_factor = 0;
+static int core_factor = 1;
 /* fixed memcpy block size for -t2 */
 unsigned long long block_size=DEFAULT_BLOCK_SIZE;
 unsigned long long asize=0; /* array size (elements in array) */
@@ -172,7 +263,7 @@ static void mt_wait(void)
     int j = 0;
     int k = 0;
     double sum = 0;
-
+    printf("mt is %f\n", mt);
     for (i = 0; i < mt_num; i++) {
         pthread_join(mt_threads[i], 0);
     }
@@ -261,12 +352,10 @@ double worker(unsigned long long asize, long *a, long *b, int type, unsigned lon
     if(type==TEST_MEMCPY) { /* memcpy test */
         /* timer starts */
         mt_bar();
-
         gettimeofday(&starttime, NULL);
         memcpy(b, a, array_bytes);
         /* timer stops */
         gettimeofday(&endtime, NULL);
-
         mt_bar();
     } else if(type==TEST_MCBLOCK) { /* memcpy block test */
         char* aa = (char*)a;
@@ -285,14 +374,24 @@ double worker(unsigned long long asize, long *a, long *b, int type, unsigned lon
         mt_bar();
     } else if(type==TEST_DUMB) { /* dumb test */
         mt_bar();
-        
         gettimeofday(&starttime, NULL);
         for(t=0; t<asize; t++) {
             b[t]=a[t];
         }
         gettimeofday(&endtime, NULL);
-
         mt_bar();
+    } else if (type==TEST_NEON) {
+	mt_bar();
+        gettimeofday(&starttime, NULL);
+	neon_memcpy(b, a, array_bytes);
+        gettimeofday(&endtime, NULL);
+        mt_bar();
+    } else if (type == TEST_LDM_PL) {
+	mt_bar();
+ 	gettimeofday(&starttime, NULL);
+	ldmpl_memcpy(b, a, array_bytes);
+	gettimeofday(&endtime, NULL);
+	mt_bar();
     }
 
     te=((double)(endtime.tv_sec*1000000-starttime.tv_sec*1000000+endtime.tv_usec-starttime.tv_usec))/1000000;
@@ -321,6 +420,12 @@ void printout(double te, double mt, int type)
         case TEST_MCBLOCK:
             printf("Method: MCBLOCK\t");
             break;
+	case TEST_NEON:
+	    printf("Method: NEON\t");
+  	    break;
+	case TEST_LDM_PL:
+	    printf("Method: LDMPL\t");
+	    break;
     }
     printf("Elapsed: %.5f\t", te);
     printf("MiB: %.5f\t", mt);
@@ -363,13 +468,11 @@ int main(int argc, char **argv)
     int i;
     long *a, *b; /* the two arrays to be copied from/to */
     int o; /* getopt options */
+    int sum;
     unsigned long testno;
 
     /* options */
-
-    tests[0]=0;
-    tests[1]=0;
-    tests[2]=0;
+    for (i = 0; i < MAX_TESTS; i++)  tests[i] = 0;
 
     while((o=getopt(argc, argv, "haqn:t:b:T:")) != EOF) {
         switch(o) {
@@ -385,7 +488,7 @@ int main(int argc, char **argv)
                 break;
             case 't': /* test to run */
                 testno=strtoul(optarg, (char **)NULL, 10);
-                if(0>testno) {
+                if(testno>MAX_TESTS) {
                     printf("Error: test number must be between 0 and %d\n", MAX_TESTS);
                     exit(1);
                 }
@@ -414,10 +517,11 @@ int main(int argc, char **argv)
     }
 
     /* default is to run all tests if no specific tests were requested */
-    if( (tests[0]+tests[1]+tests[2]) == 0) {
-        tests[0]=1;
-        tests[1]=1;
-        tests[2]=1;
+    sum = 0;
+    for (i = 0; i < MAX_TESTS; i++) sum += tests[i];
+
+    if (sum == 0) {
+	for (i = 0; i < MAX_TESTS; i++) tests[i] = 1;
     }
 
     if(optind<argc) {
