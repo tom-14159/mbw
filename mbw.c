@@ -84,19 +84,19 @@ static inline void *neon_memcpy(void *dest, const void *src, size_t n)
     register void *_s asm ("r1") = src;
     register size_t _n asm ("r2") = n;
     __asm__ __volatile__ (
-  		              ".fpu neon		\n"
-			      "1:                       \n"
- 			      "pld	[%1, #28]	\n"
-			      "pld      [%1, #92]       \n"
-			      "pld	[%1, #124]	\n"
-			      "vldm r1!, {d0-d7}	\n"
-			      "vstm r0!, {d0-d7}	\n"
-			      "subs r2, r2, #0x40	\n"
-			      "bge 1b			\n"
-			      :
-			      : "r"(_d), "r"(_s), "r"(_n)
-                              : "memory"
-	); 	
+            ".fpu neon		    \n"
+            "1:                 \n"
+            "pld    [%1, #28]   \n"
+            "pld    [%1, #92]   \n"
+            "pld    [%1, #124]  \n"
+            "vldm r1!, {d0-d7}	\n"
+            "vstm r0!, {d0-d7}	\n"
+            "subs r2, r2, #0x40	\n"
+            "bge 1b             \n"
+            :
+            : "r"(_d), "r"(_s), "r"(_n)
+            : "memory"
+            ); 	
 }
 
 static void *ldmpl_memcpy(void *dest, const void *src, size_t n)
@@ -105,23 +105,24 @@ static void *ldmpl_memcpy(void *dest, const void *src, size_t n)
     register void *_s asm ("r1") = src;
     register size_t _n asm ("r2") = n;
 
-    __asm__ __volatile__("push	{r4-r10} 	\n"
-			 "1:			\n"
- 			 "pld	[%1, #28]	\n"
-		         "pld   [%1, #60]       \n"
-                         "pld   [%1, #92]       \n"
-                         "pld   [%1, #124]      \n"
-			 "ldmia %1!, {r3-r10}   \n"
-			 "stmia %0!, {r3-r10}   \n"
-	                 "ldmia %1!, {r3-r10}   \n"
-                         "stmia %0!, {r3-r10}   \n"
-                         "subs  %2, %2, #0x40   \n"
-     			 "bge	1b		\n"
-			 "pop	{r4-r10}	\n"
-			:
-			: "r"(_d), "r"(_s), "r"(_n)
-			: "memory"
-	);
+    __asm__ __volatile__(
+            "push	{r4-r10}        \n"
+            "1:                     \n"
+            "pld	[%1, #28]       \n"
+            "pld    [%1, #60]       \n"
+            "pld    [%1, #92]       \n"
+            "pld    [%1, #124]      \n"
+            "ldmia  %1!, {r3-r10}   \n"
+            "stmia  %0!, {r3-r10}   \n"
+            "ldmia  %1!, {r3-r10}   \n"
+            "stmia  %0!, {r3-r10}   \n"
+            "subs   %2, %2, #0x40   \n"
+            "bge    1b              \n"
+            "pop    {r4-r10}        \n"
+            :
+            : "r"(_d), "r"(_s), "r"(_n)
+            : "memory"
+            );
 }
 
 #endif
@@ -266,7 +267,7 @@ static void mt_wait(void)
     int j = 0;
     int k = 0;
     double sum = 0;
-    printf("mt is %f\n", mt);
+
     for (i = 0; i < mt_num; i++) {
         pthread_join(mt_threads[i], 0);
     }
@@ -384,17 +385,17 @@ double worker(unsigned long long asize, long *a, long *b, int type, unsigned lon
         gettimeofday(&endtime, NULL);
         mt_bar();
     } else if (type==TEST_NEON) {
-	mt_bar();
+        mt_bar();
         gettimeofday(&starttime, NULL);
-	neon_memcpy(b, a, array_bytes);
+        neon_memcpy(b, a, array_bytes);
         gettimeofday(&endtime, NULL);
         mt_bar();
     } else if (type == TEST_LDM_PL) {
-	mt_bar();
- 	gettimeofday(&starttime, NULL);
-	ldmpl_memcpy(b, a, array_bytes);
-	gettimeofday(&endtime, NULL);
-	mt_bar();
+        mt_bar();
+        gettimeofday(&starttime, NULL);
+        ldmpl_memcpy(b, a, array_bytes);
+        gettimeofday(&endtime, NULL);
+        mt_bar();
     }
 
     te=((double)(endtime.tv_sec*1000000-starttime.tv_sec*1000000+endtime.tv_usec-starttime.tv_usec))/1000000;
@@ -423,12 +424,12 @@ void printout(double te, double mt, int type)
         case TEST_MCBLOCK:
             printf("Method: MCBLOCK\t");
             break;
-	case TEST_NEON:
-	    printf("Method: NEON\t");
-  	    break;
-	case TEST_LDM_PL:
-	    printf("Method: LDMPL\t");
-	    break;
+        case TEST_NEON:
+	        printf("Method: NEON\t");
+  	        break;
+	    case TEST_LDM_PL:
+            printf("Method: LDMPL\t");
+            break;
     }
     printf("Elapsed: %.5f\t", te);
     printf("MiB: %.5f\t", mt);
@@ -523,9 +524,7 @@ int main(int argc, char **argv)
     sum = 0;
     for (i = 0; i < MAX_TESTS; i++) sum += tests[i];
 
-    if (sum == 0) {
-	for (i = 0; i < MAX_TESTS; i++) tests[i] = 1;
-    }
+    if (sum == 0) for (i = 0; i < MAX_TESTS; i++) tests[i] = 1;
 
     if(optind<argc) {
         mt=strtoul(argv[optind++], (char **)NULL, 10);
