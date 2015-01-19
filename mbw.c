@@ -15,7 +15,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <linux/perf_event.h>
 #include <asm/unistd.h>
 
 /* how many runs to average by default */
