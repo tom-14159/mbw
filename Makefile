@@ -1,4 +1,3 @@
-#CFLAGS=-O2 -Wall  -mfpu=neon
 CFLAGS=-O2 -mfpu=neon --static 
 
 NAME=mbw
