@@ -7,7 +7,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 set(SOURCE_FILES
-    mbw.c)
+    mbw.cpp mem_bench.h memcopy_bench.h mem_dumb_bench.h mem_block_bench.h barrier.h)
 
 add_executable(mbw ${SOURCE_FILES})
 target_link_libraries(mbw Threads::Threads)
