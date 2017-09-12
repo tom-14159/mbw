@@ -417,7 +417,7 @@ int main(int argc, char **argv)
         tests[i] = 0;
     }
 
-    while((o=getopt(argc, argv, "haqnB:t:b:T:")) != EOF) {
+    while((o=getopt(argc, argv, "haqBn:t:b:T:")) != EOF) {
         switch(o) {
             case 'h':
                 usage();
