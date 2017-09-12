@@ -76,6 +76,8 @@ static int core_factor = 1;
 /* fixed memcpy block size for -t2 */
 unsigned long long block_size=DEFAULT_BLOCK_SIZE;
 unsigned long long asize=0; /* array size (elements in array) */
+/* bind threads to cores */
+static int bind_threads = 0;
 
 void run_test(int tid);
 
@@ -132,15 +134,17 @@ void *  mt_worker(void *arg)
     int tid = (arg - (void *)mt_threads) / sizeof(pthread_t);
     int ret = 0;
     int bind_core = (tid * core_factor) % num_cores;
-    cpu_set_t cs;
-    CPU_ZERO(&cs);
-    CPU_SET(bind_core, &cs);
-    ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cs);
-    if (ret) {
-        printf("Binding thread %d to core %d failed\n", tid, bind_core);
-        exit(1);
+    if (bind_threads) {
+        cpu_set_t cs;
+        CPU_ZERO(&cs);
+        CPU_SET(bind_core, &cs);
+        ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cs);
+        if (ret) {
+            printf("Binding thread %d to core %d failed\n", tid, bind_core);
+            exit(1);
+        }
+        printf("Bound thread %d to core %d\n", tid, bind_core);
     }
-    printf("Bound thread %d to core %d\n", tid, bind_core);
     mt_bar();
     run_test(tid);
     mt_bar();
@@ -413,7 +417,7 @@ int main(int argc, char **argv)
         tests[i] = 0;
     }
 
-    while((o=getopt(argc, argv, "haqn:t:b:T:")) != EOF) {
+    while((o=getopt(argc, argv, "haqnB:t:b:T:")) != EOF) {
         switch(o) {
             case 'h':
                 usage();
@@ -449,6 +453,9 @@ int main(int argc, char **argv)
                     printf("invalid parater for thread number %d range (1-%d) \n", mt_num, CONFIG_MT_MAX_THREADS);
                     exit(1);
                 }
+                break;
+            case 'B': /* bind threads to cores */
+                bind_threads=1;
                 break;
             default:
                 break;
