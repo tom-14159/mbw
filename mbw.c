@@ -109,7 +109,7 @@ __attribute__((noinline)) void *arch_memcpy(void *dest, const void *src, size_t 
 #endif
 }
 
-#define CONFIG_MT_MAX_THREADS   4
+#define CONFIG_MT_MAX_THREADS   32
 
 double *data[CONFIG_MT_MAX_THREADS][MAX_TESTS];
 static pthread_t            mt_threads[CONFIG_MT_MAX_THREADS];
@@ -131,15 +131,16 @@ void *  mt_worker(void *arg)
 {
     int tid = (arg - (void *)mt_threads) / sizeof(pthread_t);
     int ret = 0;
+    int bind_core = (tid * core_factor) % num_cores;
     cpu_set_t cs;
     CPU_ZERO(&cs);
-    CPU_SET(tid * core_factor, &cs);
+    CPU_SET(bind_core, &cs);
     ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cs);
     if (ret) {
-        printf("Binding thread %d to core %d failed\n", tid, tid * core_factor);
+        printf("Binding thread %d to core %d failed\n", tid, bind_core);
         exit(1);
     }
-    printf("Bound thread %d to core %d\n", tid, tid * core_factor);
+    printf("Bound thread %d to core %d\n", tid, bind_core);
     mt_bar();
     run_test(tid);
     mt_bar();
@@ -178,8 +179,7 @@ static int mt_init(void)
     printf("We have %d cores \n", num_cores);
     
     if (num_cores < mt_num) {
-        printf("The number of available cores %d is less than required threads %d\n", num_cores, mt_num);
-        exit(1);
+        printf("WARNING: The number of available cores %d is less than required threads %d\n", num_cores, mt_num);
     }
 
     for (i = 0; i < mt_num; i++) {
@@ -446,7 +446,7 @@ int main(int argc, char **argv)
             case 'T': /* multithreaded */
                 mt_num=strtoul(optarg, (char **)NULL, 10);
                 if (mt_num <= 0 || mt_num > CONFIG_MT_MAX_THREADS) {
-                    printf("invalid parater for thread number %d range (1-4) \n", mt_num);
+                    printf("invalid parater for thread number %d range (1-%d) \n", mt_num, CONFIG_MT_MAX_THREADS);
                     exit(1);
                 }
                 break;
